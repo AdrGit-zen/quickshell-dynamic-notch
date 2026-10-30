@@ -1176,6 +1176,7 @@ ShellRoot {
                 Item {
                     id: workspaceMusicSpacer
                     anchors.verticalCenter: parent.verticalCenter
+                    visible: win.isPlaying
                     implicitWidth: 12
                     implicitHeight: 22
                     width: 12
@@ -1194,6 +1195,7 @@ ShellRoot {
                     id: musicBars
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.verticalCenterOffset: 2
+                    visible: win.isPlaying
                     property bool playing: win.isPlaying
                     implicitWidth: 27
                     implicitHeight: 18
