@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch and restore the Quickshell Island
+After=graphical-session.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/island-start
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15

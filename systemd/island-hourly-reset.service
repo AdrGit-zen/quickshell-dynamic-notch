@@ -1,0 +1,8 @@
+[Unit]
+Description=Restart the supervised Island checker hourly
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/island-hourly-reset
+TimeoutStartSec=45

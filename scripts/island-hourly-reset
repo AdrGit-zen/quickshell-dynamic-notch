@@ -1,0 +1,33 @@
+#!/bin/sh
+# Restart the supervised checker; it owns the Quickshell child process.
+PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+export PATH
+
+uid=$(id -u)
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$uid}"
+log_file="$runtime_dir/island-hourly-reset.log"
+
+log() {
+    printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$log_file"
+}
+
+if ! command -v systemctl >/dev/null 2>&1; then
+    log "systemctl is unavailable; could not restart the Island checker."
+    exit 1
+fi
+
+if systemctl --user is-active --quiet island-checker.service; then
+    log "Hourly Island recovery: restarting the supervised checker."
+    systemctl --user restart island-checker.service || {
+        log "Could not restart island-checker.service."
+        exit 1
+    }
+else
+    log "Hourly Island recovery: starting the supervised checker."
+    systemctl --user start island-checker.service || {
+        log "Could not start island-checker.service."
+        exit 1
+    }
+fi
+
+log "Hourly Island recovery request completed."

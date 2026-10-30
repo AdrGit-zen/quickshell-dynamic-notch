@@ -1,0 +1,11 @@
+[Unit]
+Description=Restart the supervised Island checker every hour
+
+[Timer]
+OnActiveSec=1h
+OnUnitActiveSec=1h
+AccuracySec=1min
+Unit=island-hourly-reset.service
+
+[Install]
+WantedBy=timers.target
