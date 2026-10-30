@@ -1,0 +1,142 @@
+#!/bin/sh
+# Keep the Island process and its Hyprland layer alive for this login.
+PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+export PATH
+
+uid=$(id -u)
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$uid}"
+wayland_socket="${runtime_dir}/${WAYLAND_DISPLAY:-wayland-1}"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+config_path="$config_home/quickshell/island/shell.qml"
+log_file="$runtime_dir/island-start.log"
+
+log() {
+    printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$log_file"
+}
+
+export XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-wayland}"
+export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-Hyprland}"
+export XDG_SESSION_DESKTOP="${XDG_SESSION_DESKTOP:-Hyprland}"
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+
+command -v qs >/dev/null 2>&1 || exit 1
+command -v hyprctl >/dev/null 2>&1 || exit 1
+command -v jq >/dev/null 2>&1 || exit 1
+
+island_pids() {
+    qs list --all 2>/dev/null | awk -v config="$config_path" '
+        /^Instance / { pid = "" }
+        /^  Process ID:/ { pid = $3 }
+        /^  Config path:/ && $3 == config && pid ~ /^[0-9]+$/ { print pid }
+    '
+}
+
+has_island() {
+    [ -n "$(island_pids)" ]
+}
+
+has_island_layer() {
+    hyprctl layers 2>/dev/null | grep -Fq 'namespace: island'
+}
+
+is_fullscreen() {
+    hyprctl -j activewindow 2>/dev/null | jq -e '(.fullscreen // 0) > 0' >/dev/null 2>&1
+}
+
+wait_for_output() {
+    missing_socket=0
+    failed_hyprctl=0
+    while :; do
+        if [ -S "$wayland_socket" ]; then
+            missing_socket=0
+            if monitors=$(hyprctl -j monitors 2>/dev/null); then
+                failed_hyprctl=0
+                if printf '%s\n' "$monitors" | jq -e 'length > 0' >/dev/null 2>&1; then
+                    return 0
+                fi
+            else
+                failed_hyprctl=$((failed_hyprctl + 1))
+                [ "$failed_hyprctl" -ge 100 ] && return 1
+            fi
+        else
+            missing_socket=$((missing_socket + 1))
+            [ "$missing_socket" -ge 100 ] && return 1
+        fi
+        sleep 0.2
+    done
+}
+
+start_island() {
+    log "Starting Island Quickshell."
+    qs --config island --no-duplicate --daemonize >> "$log_file" 2>&1
+    last_start=$(date +%s)
+    missing_checks=0
+}
+
+restart_island() {
+    pids=$(island_pids)
+    if [ -n "$pids" ]; then
+        log "Island layer stayed missing; restarting Quickshell process(es): $(printf '%s' "$pids" | tr '\n' ' ')"
+        for pid in $pids; do
+            kill -TERM "$pid" 2>/dev/null || true
+        done
+        attempt=0
+        while [ "$attempt" -lt 10 ] && [ -n "$(island_pids)" ]; do
+            attempt=$((attempt + 1))
+            sleep 1
+        done
+        pids=$(island_pids)
+        if [ -n "$pids" ]; then
+            log "Island did not exit after TERM; forcing its process(es) to close."
+            for pid in $pids; do
+                kill -KILL "$pid" 2>/dev/null || true
+            done
+            sleep 1
+        fi
+    fi
+    start_island
+}
+
+wait_for_output || { log "No Wayland socket appeared; stopping this login's Island watcher."; exit 0; }
+
+if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+    dbus-update-activation-environment --systemd WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP QT_QPA_PLATFORM >/dev/null 2>&1
+fi
+
+if has_island; then
+    log "Watching the existing Island process and Hyprland layer."
+    last_start=$(date +%s)
+else
+    start_island
+fi
+missing_checks=0
+
+while :; do
+    wait_for_output || { log "Wayland session ended; stopping Island watcher."; exit 0; }
+
+    if ! has_island; then
+        log "Island process is absent; starting it again."
+        start_island
+    elif is_fullscreen; then
+        # Island intentionally hides during fullscreen, per its QML setting.
+        missing_checks=0
+    elif has_island_layer; then
+        missing_checks=0
+    else
+        now=$(date +%s)
+        elapsed=$((now - last_start))
+        if [ "$elapsed" -lt 25 ]; then
+            missing_checks=0
+        else
+            missing_checks=$((missing_checks + 1))
+            if [ "$missing_checks" -eq 1 ]; then
+                log "Island process is alive but its Hyprland layer is missing; checking again before recovery."
+            fi
+            if [ "$missing_checks" -ge 3 ]; then
+                restart_island
+            fi
+        fi
+    fi
+
+    sleep 3
+done

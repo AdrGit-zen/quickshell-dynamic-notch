@@ -1,6 +1,6 @@
 // Notch-style island for Hyprland (Quickshell 0.3+).
 //   - flush with the top edge: flat top, rounded bottom (like a MacBook notch)
-//   - workspaces 1-4 (click to switch) and a 12-hour clock
+//   - workspaces 1-4 (click to switch) and animated music bars
 //   - hides itself while an app is fullscreen (F11, videos, games)
 //   - hover to expand: date + media player for ANY MPRIS app
 //     (SimpMusic, Rambox, Spotify, VLC, mpv, Firefox, Chrome, ...)
@@ -243,7 +243,7 @@ ShellRoot {
 
         // ---- tweak these ----
         property var workspaceIds: [1, 2, 3, 4]
-        property bool hideOnFullscreen: true   // false: keep the notch visible over fullscreen apps
+        property bool hideOnFullscreen: true   // Hide the notch while an app is fullscreen.
         property int barH: 36          // notch height when collapsed
         property int expandedH: 204    // notch height when hovered
         property int lyricsExpandedH: 390
@@ -723,13 +723,6 @@ ShellRoot {
                 dbusCall("Seek", "int64:" + Math.round(seconds * 1000000));
         }
 
-        // 12-hour clock, e.g. "5:43 PM" (not locale dependent).
-        function time12(d) {
-            const h = d.getHours();
-            const m = d.getMinutes();
-            return ((h % 12) || 12) + ":" + (m < 10 ? "0" : "") + m + " " + (h < 12 ? "AM" : "PM");
-        }
-
         // Some players give the cover as a plain file path instead of a URL.
         function artSource(url) {
             if (!url)
@@ -993,7 +986,7 @@ ShellRoot {
                 onTriggered: win.softLoopTick()
             }
 
-            // Top row: Airplane Mode and Focus | workspaces | clock | privacy indicators.
+            // Top row: Airplane Mode and Focus | workspaces | spacer | music bars | privacy.
             Row {
                 id: topRow
                 anchors.top: parent.top
@@ -1080,12 +1073,22 @@ ShellRoot {
                     }
                 }
 
-                Rectangle {
+                Item {
+                    id: albumWorkspaceSpacer
                     anchors.verticalCenter: parent.verticalCenter
                     visible: win.hasPlayer
-                    width: 1
-                    height: 14
-                    color: "#303034"
+                    implicitWidth: 12
+                    implicitHeight: 22
+                    width: 12
+                    height: 22
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 1
+                        height: 14
+                        radius: 1
+                        color: "#6e6e73"
+                    }
                 }
 
                 Item {
@@ -1170,14 +1173,83 @@ ShellRoot {
                     }
                 }
 
-                Text {
+                Item {
+                    id: workspaceMusicSpacer
                     anchors.verticalCenter: parent.verticalCenter
-                    width: 68
-                    horizontalAlignment: Text.AlignHCenter
-                    text: win.time12(clock.date)
-                    color: "#f5f5f7"
-                    font.bold: false
-                    font.pixelSize: 13
+                    implicitWidth: 12
+                    implicitHeight: 22
+                    width: 12
+                    height: 22
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 1
+                        height: 14
+                        radius: 1
+                        color: "#6e6e73"
+                    }
+                }
+
+                Item {
+                    id: musicBars
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: 2
+                    property bool playing: win.isPlaying
+                    implicitWidth: 27
+                    implicitHeight: 18
+                    width: 27
+                    height: 18
+
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: parent.height
+                        spacing: 3
+
+                        Repeater {
+                            model: 4
+
+                            Rectangle {
+                                id: visualBar
+                                required property int index
+                                readonly property real midpoint: [8, 8, 7, 8][index]
+                                property real level: midpoint
+                                width: 3
+                                height: musicBars.playing ? level : 3
+                                anchors.verticalCenter: parent.verticalCenter
+                                radius: width / 2
+                                color: Qt.lighter(win.mediaAccent, 1.35)
+                                Behavior on color { ColorAnimation { duration: 520; easing.type: Easing.OutCubic } }
+
+                                SequentialAnimation {
+                                    running: musicBars.playing
+                                    loops: Animation.Infinite
+                                    NumberAnimation {
+                                        target: visualBar
+                                        property: "level"
+                                        from: visualBar.midpoint
+                                        to: [14, 11, 14, 10][visualBar.index]
+                                        duration: 210 + visualBar.index * 35
+                                        easing.type: Easing.InOutSine
+                                    }
+                                    NumberAnimation {
+                                        target: visualBar
+                                        property: "level"
+                                        to: [3, 4, 3, 4][visualBar.index]
+                                        duration: 230 + visualBar.index * 30
+                                        easing.type: Easing.InOutSine
+                                    }
+                                    NumberAnimation {
+                                        target: visualBar
+                                        property: "level"
+                                        to: visualBar.midpoint
+                                        duration: 180
+                                        easing.type: Easing.InOutSine
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Rectangle {
